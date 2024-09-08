@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Academic Schedule Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Academic Schedule Generator</h1>
+        <form id="upload-form" enctype="multipart/form-data">
+            <input type="file" id="syllabi" name="syllabi" multiple accept=".pdf,.docx,.txt">
+            <button type="submit">Generate Schedule</button>
+        </form>
+        <div id="loading" style="display: none;">
+            <p id="processing-message">PROCESSING SYLLABUS FILES</p>
+        </div>
+        <div id="result"></div>
+        <div id="raw-data" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            var formData = new FormData(this);
+            var loadingDiv = document.getElementById('loading');
+            var processingMessage = document.getElementById('processing-message');
+            var resultDiv = document.getElementById('result');
+            var rawDataDiv = document.getElementById('raw-data');
+
+            loadingDiv.style.display = 'block';
+            resultDiv.innerHTML = '';
+            rawDataDiv.innerHTML = '';
+
+            // Start flashing animation
+            var isVisible = true;
+            var flashInterval = setInterval(function() {
+                processingMessage.style.visibility = isVisible ? 'visible' : 'hidden';
+                isVisible = !isVisible;
+            }, 500);
+
+            fetch('/', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearInterval(flashInterval);  // Stop flashing animation
+                loadingDiv.style.display = 'none';
+                if (data.error) {
+                    resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
+                } else {
+                    // Display formatted schedule
+                    resultDiv.innerHTML = `<pre>${data.schedule}</pre>`;
+                    
+                    // Store raw JSON data
+                    rawDataDiv.textContent = JSON.stringify(data.raw_data, null, 2);
+                }
+            })
+            .catch(error => {
+                clearInterval(flashInterval);  // Stop flashing animation
+                loadingDiv.style.display = 'none';
+                resultDiv.innerHTML = `<p class="error">An error occurred: ${error}</p>`;
+            });
+        });
+    </script>
+</body>
+</html>
