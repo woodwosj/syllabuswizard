@@ -43,18 +43,11 @@ button:hover {
     background: #555;
 }
 
-#loading, #result {
+#status, #error, #result {
     margin-top: 20px;
 }
 
-#processing-message {
-    font-size: 18px;
-    font-weight: bold;
-    color: #ff0000;
-    text-align: center;
-}
-
-.error {
+#error {
     color: red;
 }
 
@@ -64,4 +57,18 @@ pre {
     overflow-x: auto;
     white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+#download-link {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 10px;
+    background: #4CAF50;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+}
+
+#download-link:hover {
+    background: #45a049;
 }

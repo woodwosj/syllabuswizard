@@ -15,7 +15,7 @@
         </form>
         <div id="status" style="display: none;"></div>
         <div id="error" style="display: none; color: red;"></div>
-        <div id="result"></div>
+        <pre id="result"></pre>
         <a id="download-link" style="display: none;">Download Schedule</a>
     </div>
 
@@ -23,7 +23,7 @@
         const form = document.getElementById('upload-form');
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
-        const resultDiv = document.getElementById('result');
+        const resultPre = document.getElementById('result');
         const downloadLink = document.getElementById('download-link');
 
         form.addEventListener('submit', async (e) => {
@@ -32,7 +32,7 @@
             const formData = new FormData(form);
             statusDiv.style.display = 'block';
             errorDiv.style.display = 'none';
-            resultDiv.innerHTML = '';
+            resultPre.textContent = '';
             downloadLink.style.display = 'none';
 
             try {
@@ -40,7 +40,11 @@
                 statusDiv.textContent = 'Uploading your syllabi...';
                 const uploadResponse = await fetch('/upload', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: {
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'SyllabusWizard/1.0'
+                    }
                 });
                 const uploadResult = await uploadResponse.json();
                 if (uploadResponse.ok) {
@@ -50,16 +54,18 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'SyllabusWizard/1.0'
                         },
                         body: JSON.stringify({ files: uploadResult.files })
                     });
-                    const processResult = await processResponse.json();
+                    const processResult = await processResponse.text();
                     if (processResponse.ok) {
                         // Display results
                         statusDiv.textContent = 'Schedule generated successfully!';
                         displaySchedule(processResult);
                     } else {
-                        throw new Error(processResult.error || 'Error processing files');
+                        throw new Error(processResult || 'Error processing files');
                     }
                 } else {
                     throw new Error(uploadResult.error || 'Error uploading files');
@@ -67,59 +73,15 @@
             } catch (error) {
                 statusDiv.style.display = 'none';
                 errorDiv.style.display = 'block';
-                errorDiv.innerHTML = `<h3>Error:</h3><p>${error.message}</p>`;
-                if (error.details) {
-                    errorDiv.innerHTML += '<h4>Details:</h4><ul>';
-                    error.details.forEach(detail => {
-                        errorDiv.innerHTML += `<li>${detail}</li>`;
-                    });
-                    errorDiv.innerHTML += '</ul>';
-                }
+                errorDiv.textContent = `Error: ${error.message}`;
             }
         });
 
         function displaySchedule(data) {
-            let scheduleHtml = '<h2>Your Academic Schedule</h2>';
-            
-            if (data.schedule && data.schedule.length > 0) {
-                scheduleHtml += '<ul>';
-                data.schedule.forEach(item => {
-                    scheduleHtml += `<li>${item}</li>`;
-                });
-                scheduleHtml += '</ul>';
-            } else {
-                scheduleHtml += '<p>No schedule items found.</p>';
-            }
-
-            if (data.grading_rubrics && data.grading_rubrics.length > 0) {
-                scheduleHtml += '<h3>Grading Rubrics</h3>';
-                data.grading_rubrics.forEach(rubric => {
-                    scheduleHtml += `<pre>${rubric}</pre>`;
-                });
-            } else {
-                scheduleHtml += '<h3>Grading Rubrics</h3><p>No grading rubrics found.</p>';
-            }
-
-            if (data.conflicts && data.conflicts.length > 0) {
-                scheduleHtml += '<h3>Conflicts</h3><ul>';
-                data.conflicts.forEach(conflict => {
-                    scheduleHtml += `<li>${conflict}</li>`;
-                });
-                scheduleHtml += '</ul>';
-            }
-
-            if (data.notes && data.notes.length > 0) {
-                scheduleHtml += '<h3>Notes</h3><ul>';
-                data.notes.forEach(note => {
-                    scheduleHtml += `<li>${note}</li>`;
-                });
-                scheduleHtml += '</ul>';
-            }
-
-            resultDiv.innerHTML = scheduleHtml;
+            resultPre.textContent = data;
 
             // Prepare download link
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'text/plain' });
+            const blob = new Blob([data], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             downloadLink.href = url;
             downloadLink.download = 'academic_schedule.txt';
