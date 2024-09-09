@@ -1,0 +1,28 @@
+Title: You are about to visit obviously-quick-osprey.ngrok-free.app, served by 2601:582:4700:1e10:90ec:a208:dad7:40dd. This website is served for free through ngrok.com. You should only visit this website if you trust whoever sent the link to you.
+
+URL Source: https://obviously-quick-osprey.ngrok-free.app/uploads/20251-Fall-2024-CET-2688C-741015-SSCP.pdf
+
+Markdown Content:
+### You are about to visit:
+
+obviously-quick-osprey.ngrok-free.app
+
+Website IP: 2601:582:4700:1e10:90ec:a208:dad7:40dd
+
+*   This website is served for free through [ngrok.com](https://ngrok.com/).
+*   You should only visit this website if you trust whoever sent the link to you.
+*   Be careful about disclosing personal or financial information like passwords, phone numbers, or credit cards.
+
+Are you the developer?
+----------------------
+
+We display this page to prevent abuse. Visitors to your site will only see it once.
+
+To remove this page:
+--------------------
+
+*   Set and send an `ngrok-skip-browser-warning` request header with any value.
+*   Or, set and send a custom/non-standard browser `User-Agent` request header.
+*   Or, please [upgrade](https://dashboard.ngrok.com/billing) to any paid ngrok account.
+
+Learn how ngrok [fights abuse](https://ngrok.com/abuse)

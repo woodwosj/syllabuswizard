@@ -1,145 +1,126 @@
 import os
 import json
-from flask import Flask, render_template, request, jsonify
-from openai import OpenAI
 import tempfile
+import shutil
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
+from openai import OpenAI
+import requests
 from datetime import datetime
 
 app = Flask(__name__)
 
+# Configuration
+UPLOAD_FOLDER = 'uploads'
+PROCESSED_FOLDER = 'processed'
+ALLOWED_EXTENSIONS = {'pdf'}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+JINA_API_KEY = 'jina_744f2c5c58084713bfc7f2f5372246afY2w6X8kWUwHlzadQPFV34oreSDCs'
+NGROK_DOMAIN = 'obviously-quick-osprey.ngrok-free.app'
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# Ensure upload and processed folders exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+
 # Initialize the OpenAI client
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-def extract_info_from_syllabus(content, filename):
-    prompt = f"""
-    Follow this process step by step to extract information from the syllabus:
-    1. Carefully read through the entire syllabus.
-    2. Identify ALL graded components, including but not limited to:
-       - Assignments
-       - Quizzes
-       - Tests/Exams
-       - Projects
-       - Labs (including Packet Tracer labs)
-       - Discussions
-       - Participation grades
-       - Any other component that contributes to the final grade
-    3. For each graded component, extract:
-       - Exact due date (in YYYY-MM-DD format)
-       - Full, detailed name of the component
-       - Type of component (e.g., Assignment, Quiz, Exam, Project, Lab, Discussion)
-       - Weight in the grading rubric (if available)
-    4. Identify the course start and end dates.
-    5. Extract the complete grading rubric or weights table for the class.
-    6. Note any important dates or deadlines, even if they're not graded.
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-    It is CRITICAL that you do not omit any graded components, no matter how small. Each component must be listed separately.
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-    Output the information in JSON format with the following structure:
-    {{
-        "class_name": "string",
-        "course_start_date": "YYYY-MM-DD",
-        "course_end_date": "YYYY-MM-DD",
-        "graded_components": [
-            {{
-                "date": "YYYY-MM-DD",
-                "name": "string",
-                "type": "string",
-                "weight": "string or null"
-            }}
-        ],
-        "grading_rubric": {{
-            "component": "weight"
-        }},
-        "important_dates": [
-            {{
-                "date": "YYYY-MM-DD",
-                "description": "string"
-            }}
-        ]
-    }}
+@app.route('/upload', methods=['POST'])
+def upload_files():
+    if 'syllabi' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    files = request.files.getlist('syllabi')
+    
+    if not files:
+        return jsonify({"error": "No files uploaded"}), 400
 
-    Syllabus content:
-    {content}
-    """
+    uploaded_files = []
+    for file in files:
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            uploaded_files.append(filename)  # Store just the filename
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a meticulous assistant that extracts every single piece of relevant academic information from syllabus documents. Your goal is to ensure absolutely no graded components or important dates are missed."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={ "type": "json_object" },
-            max_tokens=4000
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        return {"error": f"Error processing syllabus {filename}: {str(e)}"}
+    if not uploaded_files:
+        return jsonify({"error": "No valid files uploaded"}), 400
 
-def verify_extracted_info(original_content, extracted_info, filename):
-    prompt = f"""
-    Follow this process step by step to verify the extracted information:
-    1. Carefully read through the entire original syllabus content.
-    2. Compare the extracted information with the original syllabus content.
-    3. Check for any missing graded components, including:
-       - Assignments
-       - Quizzes
-       - Tests/Exams
-       - Projects
-       - Labs (including Packet Tracer labs)
-       - Discussions
-       - Participation grades
-       - Any other component that contributes to the final grade
-    4. Verify that all due dates are correct and in YYYY-MM-DD format.
-    5. Ensure that the grading rubric is complete and accurate.
-    6. Check that all important dates are included.
-    7. If you find any missing information, add it to the JSON structure.
-    8. If you remove any information, document your reasoning in a "notes" field.
+    return jsonify({"message": "Files uploaded successfully", "files": uploaded_files})
 
-    Original syllabus content:
-    {original_content}
+@app.route('/process', methods=['POST'])
+def process_files():
+    files = request.json.get('files', [])
+    if not files:
+        return jsonify({"error": "No files to process"}), 400
 
-    Extracted information (JSON):
-    {json.dumps(extracted_info, indent=2)}
+    processed_data = []
+    jina_errors = []
+    for filename in files:
+        file_url = f"https://{NGROK_DOMAIN}/uploads/{filename}"
+        jina_url = f"https://r.jina.ai/{file_url}"
+        try:
+            headers = {
+                'Authorization': f'Bearer {JINA_API_KEY}'
+            }
+            response = requests.get(jina_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            processed_content = response.text
+            
+            # Save processed content
+            processed_filename = f"processed_{filename}.txt"
+            processed_path = os.path.join(app.config['PROCESSED_FOLDER'], processed_filename)
+            with open(processed_path, 'w', encoding='utf-8') as f:
+                f.write(processed_content)
+            
+            processed_data.append(processed_content)
+        except requests.RequestException as e:
+            jina_errors.append(f"Error processing file {filename}: {str(e)}")
 
-    Output the final, verified, and potentially updated information in the same JSON format as the input, with an additional "notes" field if needed.
-    """
+    if jina_errors:
+        return jsonify({
+            "error": "Jina API errors occurred",
+            "details": jina_errors
+        }), 500
+
+    if not processed_data:
+        return jsonify({"error": "No files were successfully processed"}), 500
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a detail-oriented assistant tasked with verifying and completing extracted syllabus information. Your goal is to ensure all graded components and important dates are captured accurately."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={ "type": "json_object" },
-            max_tokens=4000
-        )
-        return json.loads(response.choices[0].message.content)
+        # Compile all processed data
+        compiled_data = "\n\n".join(processed_data)
+
+        # Process with LLM
+        final_schedule = generate_final_schedule(compiled_data)
+        
+        # Convert the schedule to a more user-friendly format
+        formatted_schedule = format_schedule(final_schedule)
     except Exception as e:
-        return {"error": f"Error verifying information for {filename}: {str(e)}"}
+        return jsonify({"error": f"Error compiling or processing data: {str(e)}"}), 500
 
-def generate_final_schedule(extracted_info_list):
+    # Cleanup
+    cleanup_files([os.path.join(app.config['UPLOAD_FOLDER'], f) for f in files])
+
+    return jsonify(formatted_schedule)
+
+def generate_final_schedule(compiled_data):
     prompt = f"""
-    Follow this process step by step to generate the final comprehensive academic schedule:
-    1. Read through all the JSON files containing extracted and verified syllabus information.
-    2. Combine all graded components and important dates into a single, chronological list.
-    3. For each item, include:
-       - Exact Date (YYYY-MM-DD format)
-       - Full, detailed name of the component
-       - Class Name
-       - Type of component (e.g., Assignment, Quiz, Exam, Project, Lab, Discussion)
-       - Weight in the grading rubric (if available)
-    4. Ensure that EVERY SINGLE graded component is included, even if multiple are due on the same date.
-    5. Do not summarize or group components. Each should be its own line item.
-    6. Include a separate section for each class's complete grading rubric.
-    7. Note any conflicts or potential issues in a separate section.
-    8. Include any notes or concerns about potentially missing information in a separate section.
+    Analyze the following syllabus information and generate a comprehensive academic schedule:
 
-    Extracted information from all syllabi:
-    {json.dumps(extracted_info_list, indent=2)}
+    {compiled_data}
 
-    Output the final comprehensive academic schedule as a JSON object with the following structure:
+    Create a JSON object with the following structure:
     {{
         "schedule": [
             {{
@@ -165,7 +146,8 @@ def generate_final_schedule(extracted_info_list):
         "notes": ["string"]
     }}
 
-    Ensure the schedule is sorted chronologically and includes every single graded component without summarization.
+    Ensure the schedule is sorted chronologically and includes every single graded component and important date without summarization.
+    If no valid data is found, include appropriate notes explaining the situation.
     """
 
     try:
@@ -182,70 +164,41 @@ def generate_final_schedule(extracted_info_list):
     except Exception as e:
         return {"error": f"Error generating final schedule: {str(e)}"}
 
-def format_schedule(schedule_json):
-    formatted_output = "Comprehensive Academic Schedule:\n"
-    for item in schedule_json['schedule']:
-        formatted_output += f"{item['date']}: {item['name']} ({item['class']} - {item['type']})"
-        if item['weight']:
-            formatted_output += f" [{item['weight']}]"
-        formatted_output += "\n"
-    
-    formatted_output += "\nGrading Rubrics:\n"
-    for class_name, rubric in schedule_json['grading_rubrics'].items():
-        formatted_output += f"{class_name}\n"
+def format_schedule(schedule_data):
+    formatted = {
+        "schedule": [],
+        "grading_rubrics": [],
+        "conflicts": [],
+        "notes": schedule_data.get("notes", [])
+    }
+
+    # Format schedule
+    for item in schedule_data.get("schedule", []):
+        formatted["schedule"].append(f"{item['date']}: {item['name']} ({item['class']} - {item['type']}) {f'[{item['weight']}]' if item['weight'] else ''}")
+
+    # Format grading rubrics
+    for class_name, rubric in schedule_data.get("grading_rubrics", {}).items():
+        class_rubric = f"{class_name}:\n"
         for component, weight in rubric.items():
-            formatted_output += f"- {component}: {weight}\n"
-        formatted_output += "\n"
-    
-    if schedule_json['conflicts']:
-        formatted_output += "Conflicts:\n"
-        for conflict in schedule_json['conflicts']:
-            formatted_output += f"- {conflict['description']} (Classes involved: {', '.join(conflict['classes_involved'])})\n"
-    
-    if schedule_json['notes']:
-        formatted_output += "\nNotes and Concerns:\n"
-        for note in schedule_json['notes']:
-            formatted_output += f"- {note}\n"
-    
-    return formatted_output
+            class_rubric += f"  - {component}: {weight}\n"
+        formatted["grading_rubrics"].append(class_rubric)
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        files = request.files.getlist('syllabi')
-        
-        if not files:
-            return jsonify({"error": "No files uploaded"}), 400
+    # Format conflicts
+    for conflict in schedule_data.get("conflicts", []):
+        formatted["conflicts"].append(f"{conflict['description']} (Classes involved: {', '.join(conflict['classes_involved'])})")
 
-        extracted_info_list = []
-        for file in files:
-            if file.filename == '':
-                continue
-            if file and file.filename.lower().endswith(('.pdf', '.docx', '.txt')):
-                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                    file.save(temp_file.name)
-                    temp_file.flush()
+    return formatted
 
-                    with open(temp_file.name, 'rb') as f:
-                        content = f.read()
-                    
-                    syllabus_content = content.decode('utf-8', errors='ignore')
-                    
-                    extracted = extract_info_from_syllabus(syllabus_content, file.filename)
-                    verified = verify_extracted_info(syllabus_content, extracted, file.filename)
-                    
-                    extracted_info_list.append(verified)
-                
-                os.unlink(temp_file.name)
+def cleanup_files(file_list):
+    for file in file_list:
+        try:
+            os.remove(file)
+        except Exception as e:
+            print(f"Error deleting file {file}: {str(e)}")
 
-        final_schedule_json = generate_final_schedule(extracted_info_list)
-        
-        # Format the JSON into a readable string
-        formatted_schedule = format_schedule(final_schedule_json)
-
-        return jsonify({"schedule": formatted_schedule, "raw_data": final_schedule_json})
-
-    return render_template('index.html')
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 if __name__ == '__main__':
     app.run(debug=True)

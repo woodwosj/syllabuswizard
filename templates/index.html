@@ -3,68 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Academic Schedule Generator</title>
+    <title>Syllabus Wizard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>Academic Schedule Generator</h1>
+        <h1>Syllabus Wizard</h1>
         <form id="upload-form" enctype="multipart/form-data">
-            <input type="file" id="syllabi" name="syllabi" multiple accept=".pdf,.docx,.txt">
+            <input type="file" id="syllabi" name="syllabi" multiple accept=".pdf">
             <button type="submit">Generate Schedule</button>
         </form>
-        <div id="loading" style="display: none;">
-            <p id="processing-message">PROCESSING SYLLABUS FILES</p>
-        </div>
+        <div id="status" style="display: none;"></div>
+        <div id="error" style="display: none; color: red;"></div>
         <div id="result"></div>
-        <div id="raw-data" style="display: none;"></div>
+        <a id="download-link" style="display: none;">Download Schedule</a>
     </div>
 
     <script>
-        document.getElementById('upload-form').addEventListener('submit', function(e) {
+        const form = document.getElementById('upload-form');
+        const statusDiv = document.getElementById('status');
+        const errorDiv = document.getElementById('error');
+        const resultDiv = document.getElementById('result');
+        const downloadLink = document.getElementById('download-link');
+
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            var formData = new FormData(this);
-            var loadingDiv = document.getElementById('loading');
-            var processingMessage = document.getElementById('processing-message');
-            var resultDiv = document.getElementById('result');
-            var rawDataDiv = document.getElementById('raw-data');
-
-            loadingDiv.style.display = 'block';
+            const formData = new FormData(form);
+            statusDiv.style.display = 'block';
+            errorDiv.style.display = 'none';
             resultDiv.innerHTML = '';
-            rawDataDiv.innerHTML = '';
+            downloadLink.style.display = 'none';
 
-            // Start flashing animation
-            var isVisible = true;
-            var flashInterval = setInterval(function() {
-                processingMessage.style.visibility = isVisible ? 'visible' : 'hidden';
-                isVisible = !isVisible;
-            }, 500);
-
-            fetch('/', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                clearInterval(flashInterval);  // Stop flashing animation
-                loadingDiv.style.display = 'none';
-                if (data.error) {
-                    resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
+            try {
+                // Step 1: Upload files
+                statusDiv.textContent = 'Uploading your syllabi...';
+                const uploadResponse = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const uploadResult = await uploadResponse.json();
+                if (uploadResponse.ok) {
+                    // Step 2: Process files
+                    statusDiv.textContent = 'Processing your syllabi...';
+                    const processResponse = await fetch('/process', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ files: uploadResult.files })
+                    });
+                    const processResult = await processResponse.json();
+                    if (processResponse.ok) {
+                        // Display results
+                        statusDiv.textContent = 'Schedule generated successfully!';
+                        displaySchedule(processResult);
+                    } else {
+                        throw new Error(processResult.error || 'Error processing files');
+                    }
                 } else {
-                    // Display formatted schedule
-                    resultDiv.innerHTML = `<pre>${data.schedule}</pre>`;
-                    
-                    // Store raw JSON data
-                    rawDataDiv.textContent = JSON.stringify(data.raw_data, null, 2);
+                    throw new Error(uploadResult.error || 'Error uploading files');
                 }
-            })
-            .catch(error => {
-                clearInterval(flashInterval);  // Stop flashing animation
-                loadingDiv.style.display = 'none';
-                resultDiv.innerHTML = `<p class="error">An error occurred: ${error}</p>`;
-            });
+            } catch (error) {
+                statusDiv.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.innerHTML = `<h3>Error:</h3><p>${error.message}</p>`;
+                if (error.details) {
+                    errorDiv.innerHTML += '<h4>Details:</h4><ul>';
+                    error.details.forEach(detail => {
+                        errorDiv.innerHTML += `<li>${detail}</li>`;
+                    });
+                    errorDiv.innerHTML += '</ul>';
+                }
+            }
         });
+
+        function displaySchedule(data) {
+            let scheduleHtml = '<h2>Your Academic Schedule</h2>';
+            
+            if (data.schedule && data.schedule.length > 0) {
+                scheduleHtml += '<ul>';
+                data.schedule.forEach(item => {
+                    scheduleHtml += `<li>${item}</li>`;
+                });
+                scheduleHtml += '</ul>';
+            } else {
+                scheduleHtml += '<p>No schedule items found.</p>';
+            }
+
+            if (data.grading_rubrics && data.grading_rubrics.length > 0) {
+                scheduleHtml += '<h3>Grading Rubrics</h3>';
+                data.grading_rubrics.forEach(rubric => {
+                    scheduleHtml += `<pre>${rubric}</pre>`;
+                });
+            } else {
+                scheduleHtml += '<h3>Grading Rubrics</h3><p>No grading rubrics found.</p>';
+            }
+
+            if (data.conflicts && data.conflicts.length > 0) {
+                scheduleHtml += '<h3>Conflicts</h3><ul>';
+                data.conflicts.forEach(conflict => {
+                    scheduleHtml += `<li>${conflict}</li>`;
+                });
+                scheduleHtml += '</ul>';
+            }
+
+            if (data.notes && data.notes.length > 0) {
+                scheduleHtml += '<h3>Notes</h3><ul>';
+                data.notes.forEach(note => {
+                    scheduleHtml += `<li>${note}</li>`;
+                });
+                scheduleHtml += '</ul>';
+            }
+
+            resultDiv.innerHTML = scheduleHtml;
+
+            // Prepare download link
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            downloadLink.href = url;
+            downloadLink.download = 'academic_schedule.txt';
+            downloadLink.style.display = 'block';
+        }
     </script>
 </body>
 </html>
